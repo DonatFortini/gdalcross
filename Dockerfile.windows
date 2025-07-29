@@ -1,0 +1,82 @@
+FROM ubuntu:22.04 AS windows-builder
+
+ARG GDAL_VERSION=3.11.3
+ARG PROJ_VERSION=9.3.1
+ARG SQLITE_VERSION=3440200
+
+# Install required packages
+RUN apt-get update && apt-get install -y \
+    mingw-w64 \
+    cmake \
+    make \
+    build-essential \
+    curl \
+    tar \
+    unzip \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Environment for MinGW cross-compile
+ENV CC=x86_64-w64-mingw32-gcc
+ENV CXX=x86_64-w64-mingw32-g++
+ENV AR=x86_64-w64-mingw32-ar
+ENV RANLIB=x86_64-w64-mingw32-ranlib
+ENV STRIP=x86_64-w64-mingw32-strip
+
+# Build SQLite statically
+WORKDIR /build/sqlite
+RUN curl -L https://www.sqlite.org/2023/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
+    cd sqlite-autoconf-${SQLITE_VERSION} && \
+    ./configure --host=x86_64-w64-mingw32 --disable-shared --enable-static --prefix=/usr/local/mingw && \
+    make -j$(nproc) && make install
+
+# Build PROJ statically
+WORKDIR /build/proj
+RUN curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
+    cd proj-${PROJ_VERSION} && mkdir build && cd build && \
+    cmake .. \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=${CC} \
+    -DCMAKE_CXX_COMPILER=${CXX} \
+    -DCMAKE_INSTALL_PREFIX=/usr/local/mingw \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DENABLE_TIFF=OFF \
+    -DENABLE_CURL=OFF \
+    -DSQLITE3_INCLUDE_DIR=/usr/local/mingw/include \
+    -DSQLITE3_LIBRARY=/usr/local/mingw/lib/libsqlite3.a \
+    && make -j$(nproc) && make install
+
+# Build GDAL
+WORKDIR /build/gdal
+RUN curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz && \
+    cd gdal-${GDAL_VERSION} && mkdir build && cd build && \
+    cmake .. \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=${CC} \
+    -DCMAKE_CXX_COMPILER=${CXX} \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr/local/mingw \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DGDAL_USE_EXTERNAL_LIBS=OFF \
+    -DGDAL_USE_INTERNAL_LIBS=ON \
+    -DBUILD_PYTHON_BINDINGS=OFF \
+    -DBUILD_JAVA_BINDINGS=OFF \
+    -DBUILD_CSHARP_BINDINGS=OFF \
+    -DGDAL_USE_CURL=OFF \
+    -DGDAL_USE_GEOTIFF_INTERNAL=ON \
+    -DGDAL_USE_TIFF_INTERNAL=ON \
+    -DGDAL_USE_PNG_INTERNAL=ON \
+    -DGDAL_USE_JPEG_INTERNAL=ON \
+    -DGDAL_USE_ZLIB_INTERNAL=ON \
+    -DGDAL_USE_SQLITE=ON \
+    -DSQLITE3_INCLUDE_DIR=/usr/local/mingw/include \
+    -DSQLITE3_LIBRARY=/usr/local/mingw/lib/libsqlite3.a \
+    -DPROJ_INCLUDE_DIR=/usr/local/mingw/include \
+    -DPROJ_LIBRARY=/usr/local/mingw/lib/libproj.a \
+    && make -j$(nproc) && make install
+
+# Export the standalone binaries
+FROM scratch AS export
+COPY --from=windows-builder /usr/local/mingw/bin/*.exe /
+COPY --from=windows-builder /usr/local/mingw/share/gdal /gdal-data/
