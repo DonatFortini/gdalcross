@@ -1,3 +1,4 @@
+# Stage 1: Static builder
 FROM alpine:latest AS static-builder
 
 # Versions
@@ -21,7 +22,8 @@ RUN apk add --no-cache \
     jpeg-dev \
     libpng-dev \
     tiff-dev \
-    linux-headers
+    linux-headers \
+    zstd-static
 
 WORKDIR /tmp
 
@@ -31,7 +33,6 @@ RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz
     CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1 -O2 -w" \
     ./configure --prefix=/usr/local --enable-static --disable-shared && \
     make -j$(nproc) && make install
-
 
 # Build PROJ (static)
 RUN curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
@@ -69,11 +70,8 @@ RUN curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar x
     -DBUILD_DOCUMENTATION=OFF && \
     make -j$(nproc) && make install
 
-# Build GDAL (static)
-
-RUN apk add --no-cache zstd-static libwebp-static && \
-    rm -f /usr/lib/libwebp.so* && \
-    curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz && \
+# Build GDAL (static) with required binaries only
+RUN curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz && \
     cd gdal-${GDAL_VERSION} && \
     sed -i 's/&pszSrcBuf/(char**)\&pszSrcBuf/g' port/cpl_recode_iconv.cpp && \
     mkdir build && cd build && \
@@ -101,9 +99,8 @@ RUN apk add --no-cache zstd-static libwebp-static && \
     -DGDAL_USE_TIFF_INTERNAL=ON \
     -DGDAL_USE_ZSTD=OFF \
     -DGDAL_USE_ZSTD_INTERNAL=ON \
-    -DGDAL_USE_WEBP=INTERNAL \
-    -DTIFF_EXTRA_OPTS="-DWEBP_SUPPORT=OFF" \
-    -DGDAL_USE_WEBP_INTERNAL_SHARPYUV=ON \ 
+    -DGDAL_USE_WEBP=OFF \
+    -DBUILD_APPS=ON \
     -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF \
     -DGDAL_ENABLE_DRIVER_GTIFF=ON \
     -DGDAL_ENABLE_DRIVER_VRT=ON \
@@ -119,26 +116,14 @@ RUN apk add --no-cache zstd-static libwebp-static && \
     -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
     make -j$(nproc) && make install
 
-# Verify static linking
-RUN echo "Checking static linking:" && \
-    ldd /usr/local/bin/gdalinfo || echo "Static binary (no dynamic dependencies)" && \
-    ldd /usr/local/bin/ogr2ogr || echo "Static binary (no dynamic dependencies)" && \
-    ldd /usr/local/bin/gdal_translate || echo "Static binary (no dynamic dependencies)"
-
-# Test the binaries
-RUN /usr/local/bin/gdalinfo --version && \
-    /usr/local/bin/ogr2ogr --version && \
-    /usr/local/bin/gdal_translate --version
-
-# Create final minimal image
-FROM scratch
-COPY --from=static-builder /usr/local/bin/gdal* /bin/
-COPY --from=static-builder /usr/local/bin/ogr* /bin/
+# Stage 2: Create container for extraction
+FROM alpine:latest AS extractor
+COPY --from=static-builder /usr/local/bin/gdalinfo /binaries/
+COPY --from=static-builder /usr/local/bin/ogr2ogr /binaries/
+COPY --from=static-builder /usr/local/bin/ogrinfo /binaries/
+COPY --from=static-builder /usr/local/bin/gdal_rasterize /binaries/
 COPY --from=static-builder /usr/local/share/gdal /gdal-data/
 COPY --from=static-builder /usr/local/share/proj /proj-data/
 
-# Set environment variables for data directories
-ENV GDAL_DATA=/gdal-data
-ENV PROJ_DATA=/proj-data
-
-CMD ["gdalinfo", "--version"]
+# Keep container alive for extraction
+CMD ["tail", "-f", "/dev/null"]
