@@ -1,29 +1,16 @@
 # Stage 1: Static builder
 FROM alpine:latest AS static-builder
 
-# Versions
-ARG GDAL_VERSION=3.11.3
-ARG PROJ_VERSION=9.5.0
-ARG GEOS_VERSION=3.13.0
-ARG SQLITE_VERSION=3460100
+# Version arguments
+ARG GDAL_VERSION
+ARG PROJ_VERSION
+ARG GEOS_VERSION
+ARG SQLITE_VERSION
 
 # Install build dependencies
-RUN apk add --no-cache \
-    build-base \
-    cmake \
-    curl \
-    tar \
-    pkgconfig \
-    autoconf \
-    automake \
-    libtool \
-    zlib-dev \
-    musl-dev \
-    jpeg-dev \
-    libpng-dev \
-    tiff-dev \
-    linux-headers \
-    zstd-static
+RUN apk add --no-cache build-base cmake curl tar pkgconfig \
+    autoconf automake libtool zlib-dev musl-dev jpeg-dev \
+    libpng-dev tiff-dev linux-headers zstd-static
 
 WORKDIR /tmp
 
@@ -70,7 +57,7 @@ RUN curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar x
     -DBUILD_DOCUMENTATION=OFF && \
     make -j$(nproc) && make install
 
-# Build GDAL (static) with required binaries only
+# Build GDAL (static)
 RUN curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz && \
     cd gdal-${GDAL_VERSION} && \
     sed -i 's/&pszSrcBuf/(char**)\&pszSrcBuf/g' port/cpl_recode_iconv.cpp && \

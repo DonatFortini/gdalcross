@@ -1,44 +1,63 @@
 #!/bin/bash
 
+# Centralized version configuration
+GDAL_VERSION="3.11.3"
+PROJ_VERSION="9.5.0"
+GEOS_VERSION="3.13.0"
+SQLITE_VERSION="3460100"
 
-mkdir -p binaries/linux
+# Platform targets
+PLATFORMS=("linux" "windows")
 
-log() {
-    echo "ℹ️  $1"
+# Logging functions
+log() { echo "ℹ️  $1"; }
+success() { echo "✅ $1"; }
+error() { echo "❌ $1"; exit 1; }
+
+# Create output directory
+mkdir -p binaries
+
+build_platform() {
+    local platform=$1
+    local dockerfile="docker/Dockerfile.$platform"
+    
+    log "Building $platform binaries..."
+    
+    if ! docker build -f "$dockerfile" \
+        --build-arg GDAL_VERSION="$GDAL_VERSION" \
+        --build-arg PROJ_VERSION="$PROJ_VERSION" \
+        --build-arg GEOS_VERSION="$GEOS_VERSION" \
+        --build-arg SQLITE_VERSION="$SQLITE_VERSION" \
+        -t "gdal-$platform-binaries" .; then
+        error "$platform build failed"
+    fi
+
+    # Create and prepare container
+    docker run -d --name "temp-$platform-container" "gdal-$platform-binaries"
+    mkdir -p "binaries/$platform"
+    
+    # Extract binaries
+    log "Extracting $platform binaries..."
+    docker cp "temp-$platform-container:/binaries/" "binaries/$platform/"
+    
+    # Extract data files
+    docker cp "temp-$platform-container:/gdal-data" "binaries/$platform/"
+    docker cp "temp-$platform-container:/proj-data" "binaries/$platform/"
+    
+    # Cleanup
+    docker stop "temp-$platform-container"
+    docker rm "temp-$platform-container"
+    
+    success "$platform build completed"
 }
 
-success() {
-    echo "✅ $1"
-}
+# Main build process
+for platform in "${PLATFORMS[@]}"; do
+    if [[ -f "docker/Dockerfile.$platform" ]]; then
+        build_platform "$platform"
+    else
+        log "Skipping $platform - Dockerfile not found"
+    fi
+done
 
-error() {
-    echo "❌ $1"
-}
-
-# Build Linux version
-log "Building Linux static binaries for GDAL tools..."
-if docker build -f Dockerfile.linux -t gdal-binaries .; then
-    log "Creating container to extract binaries..."
-    docker run -d --name temp-container gdal-binaries
-    
-    log "Copying binaries..."
-    docker cp temp-container:/binaries/gdalinfo binaries/linux/
-    docker cp temp-container:/binaries/ogr2ogr binaries/linux/
-    docker cp temp-container:/binaries/ogrinfo binaries/linux/
-    docker cp temp-container:/binaries/gdal_rasterize binaries/linux/
-    
-    log "Copying data files..."
-    docker cp temp-container:/gdal-data binaries/linux/gdal-data
-    docker cp temp-container:/proj-data binaries/linux/proj-data
-    
-    log "Cleaning up..."
-    docker stop temp-container
-    docker rm temp-container
-    
-    success "Static binaries built successfully!"
-    echo "Binaries located in: binaries/linux"
-    echo "Data files located in: binaries/linux/gdal-data and binaries/linux/proj-data"
-else
-    error "Build failed"
-    exit 1
-fi
+success "All builds completed! Binaries available in: binaries/"

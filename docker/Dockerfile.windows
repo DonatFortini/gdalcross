@@ -1,0 +1,139 @@
+# Cross-compile GDAL for Windows on Linux
+FROM ubuntu:22.04 AS builder
+
+# Version arguments
+ARG GDAL_VERSION
+ARG PROJ_VERSION
+ARG GEOS_VERSION
+ARG SQLITE_VERSION
+
+# Set noninteractive to avoid tzdata prompt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install build tools and cross-compilers
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    curl \
+    git \
+    pkg-config \
+    unzip \
+    mingw-w64 \
+    autoconf \
+    automake \
+    libtool \
+    zlib1g-dev \
+    sqlite3
+
+# Download and extract sources
+WORKDIR /build
+RUN curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
+    curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar xj && \
+    curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
+    curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz
+
+# Build SQLite for host (needed for PROJ)
+WORKDIR /build/sqlite-autoconf-${SQLITE_VERSION}
+RUN ./configure --prefix=/usr/local/host \
+    CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1"
+RUN make && make install
+
+# Build SQLite for Windows
+RUN make clean
+RUN ./configure --host=x86_64-w64-mingw32 --prefix=/usr/x86_64-w64-mingw32 \
+    --disable-shared --enable-static \
+    CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1"
+RUN make && make install
+
+# Fix PROJ source code to include <mutex> header at the beginning
+WORKDIR /build/proj-${PROJ_VERSION}
+RUN sed -i '1i #include <mutex>' src/mutex.cpp
+
+# Build PROJ for Windows
+RUN mkdir build && cd build && \
+    cmake .. \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32 \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DENABLE_TIFF=OFF \
+    -DENABLE_CURL=OFF \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_PROJSYNC=OFF \
+    -DBUILD_PROJINFO=OFF \
+    -DBUILD_PROJ=OFF \
+    -DBUILD_GEOD=OFF \
+    -DBUILD_CS2CS=OFF \
+    -DBUILD_CCT=OFF \
+    -DBUILD_GIE=OFF \
+    -DSQLITE3_BINARY=/usr/local/host/bin/sqlite3 \
+    -DCMAKE_CXX_STANDARD=11
+RUN cd build && make && make install
+
+# Build GEOS for Windows
+WORKDIR /build/geos-${GEOS_VERSION}
+RUN mkdir build && cd build && \
+    cmake .. \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32 \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_DOCUMENTATION=OFF
+RUN cd build && make && make install
+
+# Build GDAL for Windows
+WORKDIR /build/gdal-${GDAL_VERSION}
+# Apply patch for cpl_recode_iconv.cpp if needed
+RUN sed -i 's/&pszSrcBuf/(char**)\&pszSrcBuf/g' port/cpl_recode_iconv.cpp
+RUN mkdir build
+WORKDIR /build/gdal-${GDAL_VERSION}/build
+RUN cmake .. \
+    -DCMAKE_SYSTEM_NAME=Windows \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_INSTALL_PREFIX=/usr/x86_64-w64-mingw32 \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_CXX_FLAGS="-DACCEPT_USE_OF_DEPRECATED_PROJ_API_H" \
+    -DCMAKE_C_FLAGS="-DACCEPT_USE_OF_DEPRECATED_PROJ_API_H" \
+    -DGDAL_USE_INTERNAL_LIBS=ON \
+    -DGDAL_USE_SQLITE3=ON \
+    -DSQLite3_ROOT=/usr/x86_64-w64-mingw32 \
+    -DGDAL_USE_PROJ=ON \
+    -DPROJ_ROOT=/usr/x86_64-w64-mingw32 \
+    -DGDAL_USE_GEOS=ON \
+    -DGEOS_ROOT=/usr/x86_64-w64-mingw32 \
+    -DGDAL_USE_ZLIB=ON \
+    -DGDAL_USE_LIBPNG_INTERNAL=ON \
+    -DGDAL_USE_JPEG_INTERNAL=ON \
+    -DGDAL_USE_GEOTIFF_INTERNAL=ON \
+    -DGDAL_USE_TIFF_INTERNAL=ON \
+    -DGDAL_USE_ZSTD=OFF \
+    -DGDAL_USE_ZSTD_INTERNAL=ON \
+    -DGDAL_USE_WEBP=OFF \
+    -DBUILD_APPS=ON \
+    -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF \
+    -DGDAL_ENABLE_DRIVER_GTIFF=ON \
+    -DGDAL_ENABLE_DRIVER_VRT=ON \
+    -DGDAL_ENABLE_DRIVER_GPKG=ON \
+    -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON \
+    -DGDAL_ENABLE_DRIVER_GEOJSON=ON \
+    -DGDAL_ENABLE_DRIVER_MEM=ON \
+    -DBUILD_PYTHON_BINDINGS=OFF \
+    -DBUILD_JAVA_BINDINGS=OFF \
+    -DBUILD_CSHARP_BINDINGS=OFF \
+    -DBUILD_TESTING=OFF
+RUN make && make install
+
+# Stage 2: Prepare artifacts
+FROM ubuntu:22.04 AS extractor
+COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdalinfo.exe /binaries/
+COPY --from=builder /usr/x86_64-w64-mingw32/bin/ogr2ogr.exe /binaries/
+COPY --from=builder /usr/x86_64-w64-mingw32/bin/ogrinfo.exe /binaries/
+COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdal_rasterize.exe /binaries/
+COPY --from=builder /usr/x86_64-w64-mingw32/share/gdal/ /gdal-data/
+COPY --from=builder /usr/x86_64-w64-mingw32/share/proj/ /proj-data/
+
+CMD ["sleep", "infinity"]
