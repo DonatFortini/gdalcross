@@ -1,28 +1,48 @@
-# Stage 1: Static builder
-FROM alpine:latest AS static-builder
+# Stage 1: Build GDAL and dependencies statically
+FROM alpine:3.19 AS static-builder
 
-# Version arguments
 ARG GDAL_VERSION
 ARG PROJ_VERSION
 ARG GEOS_VERSION
 ARG SQLITE_VERSION
 
-# Install build dependencies
-RUN apk add --no-cache build-base cmake curl tar pkgconfig \
-    autoconf automake libtool zlib-dev musl-dev jpeg-dev \
-    libpng-dev tiff-dev linux-headers zstd-static
+RUN apk update && apk add --no-cache \
+    build-base \
+    cmake \
+    curl \
+    tar \
+    pkgconfig \
+    autoconf \
+    automake \
+    libtool \
+    zlib-dev \
+    musl-dev \
+    jpeg-dev \
+    libpng-dev \
+    tiff-dev \
+    linux-headers \
+    zstd-static
 
 WORKDIR /tmp
 
-# Build SQLite3 (static)
-RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
+
+RUN curl -L -o sqlite.tar.gz https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz && \
+    curl -L -o proj.tar.gz https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz && \
+    curl -L -o geos.tar.bz2 https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 && \
+    curl -L -o gdal.tar.gz https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz
+
+# Build SQLite3 (static) 
+RUN tar xzf sqlite.tar.gz && \
     cd sqlite-autoconf-${SQLITE_VERSION} && \
     CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1 -O2 -w" \
     ./configure --prefix=/usr/local --enable-static --disable-shared && \
-    make -j$(nproc) && make install
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && \
+    rm -rf sqlite-autoconf-${SQLITE_VERSION} sqlite.tar.gz
 
-# Build PROJ (static)
-RUN curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
+# Build PROJ (static) 
+RUN tar xzf proj.tar.gz && \
     cd proj-${PROJ_VERSION} && \
     mkdir build && cd build && \
     CFLAGS="-O2 -w" CXXFLAGS="-O2 -w" \
@@ -41,10 +61,13 @@ RUN curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz
     -DBUILD_CS2CS=OFF \
     -DBUILD_CCT=OFF \
     -DBUILD_GIE=OFF && \
-    make -j$(nproc) && make install
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && \
+    rm -rf proj-${PROJ_VERSION} proj.tar.gz
 
-# Build GEOS (static)
-RUN curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar xj && \
+# Build GEOS (static) 
+RUN tar xjf geos.tar.bz2 && \
     cd geos-${GEOS_VERSION} && \
     mkdir build && cd build && \
     CFLAGS="-O2 -w" CXXFLAGS="-O2 -w" \
@@ -55,10 +78,13 @@ RUN curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar x
     -DCMAKE_INSTALL_PREFIX=/usr/local \
     -DBUILD_TESTING=OFF \
     -DBUILD_DOCUMENTATION=OFF && \
-    make -j$(nproc) && make install
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && \
+    rm -rf geos-${GEOS_VERSION} geos.tar.bz2
 
-# Build GDAL (static)
-RUN curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz && \
+# Build GDAL (static) 
+RUN tar xzf gdal.tar.gz && \
     cd gdal-${GDAL_VERSION} && \
     sed -i 's/&pszSrcBuf/(char**)\&pszSrcBuf/g' port/cpl_recode_iconv.cpp && \
     mkdir build && cd build && \
@@ -97,20 +123,27 @@ RUN curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gda
     -DGDAL_ENABLE_DRIVER_MEM=ON \
     -DBUILD_PYTHON_BINDINGS=OFF \
     -DBUILD_JAVA_BINDINGS=OFF \
-    -DBUILD_CSHARP_BINDINGS=OFF \
+    -DCSHARP_BINDINGS=OFF \
     -DBUILD_TESTING=OFF \
     -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON \
     -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
-    make -j$(nproc) && make install
+    make -j$(nproc) && \
+    make install && \
+    cd /tmp && \
+    rm -rf gdal-${GDAL_VERSION} gdal.tar.gz
 
-# Stage 2: Create container for extraction
-FROM alpine:latest AS extractor
-COPY --from=static-builder /usr/local/bin/gdalinfo /binaries/
-COPY --from=static-builder /usr/local/bin/ogr2ogr /binaries/
-COPY --from=static-builder /usr/local/bin/ogrinfo /binaries/
-COPY --from=static-builder /usr/local/bin/gdal_rasterize /binaries/
+# Stage 2: Create container for extraction 
+FROM alpine:3.19 AS final
+COPY --from=static-builder /usr/local/bin/gdalinfo /binaries/gdalinfo
+COPY --from=static-builder /usr/local/bin/ogr2ogr /binaries/ogr2ogr
+COPY --from=static-builder /usr/local/bin/ogrinfo /binaries/ogrinfo
+COPY --from=static-builder /usr/local/bin/gdal_rasterize /binaries/gdal_rasterize
+COPY --from=static-builder /usr/local/bin/gdal_translate /binaries/gdal_translate
 COPY --from=static-builder /usr/local/share/gdal /gdal-data/
 COPY --from=static-builder /usr/local/share/proj /proj-data/
 
-# Keep container alive for extraction
+ENV GDAL_DATA=/gdal-data
+ENV PROJ_DATA=/proj-data
+
+# Keep container running for extraction
 CMD ["tail", "-f", "/dev/null"]

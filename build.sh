@@ -23,30 +23,42 @@ build_platform() {
     
     log "Building $platform binaries..."
     
+    # Build and load the image into Docker
     if ! docker build -f "$dockerfile" \
         --build-arg GDAL_VERSION="$GDAL_VERSION" \
         --build-arg PROJ_VERSION="$PROJ_VERSION" \
         --build-arg GEOS_VERSION="$GEOS_VERSION" \
         --build-arg SQLITE_VERSION="$SQLITE_VERSION" \
+        --load \
         -t "gdal-$platform-binaries" .; then
         error "$platform build failed"
     fi
 
     # Create and prepare container
-    docker run -d --name "temp-$platform-container" "gdal-$platform-binaries"
+    if ! docker run -d --name "temp-$platform-container" "gdal-$platform-binaries"; then
+        error "Failed to create $platform container"
+    fi
+    
     mkdir -p "binaries/$platform"
     
-    # Extract binaries
+    # Extract binaries with error checking
     log "Extracting $platform binaries..."
-    docker cp "temp-$platform-container:/binaries/" "binaries/$platform/"
+    if ! docker cp "temp-$platform-container:/binaries/." "binaries/$platform/"; then
+        log "Warning: Failed to extract binaries for $platform"
+    fi
     
-    # Extract data files
-    docker cp "temp-$platform-container:/gdal-data" "binaries/$platform/"
-    docker cp "temp-$platform-container:/proj-data" "binaries/$platform/"
+    # Extract data files with error checking
+    if ! docker cp "temp-$platform-container:/gdal-data" "binaries/$platform/"; then
+        log "Warning: Failed to extract GDAL data for $platform"
+    fi
+    
+    if ! docker cp "temp-$platform-container:/proj-data" "binaries/$platform/"; then
+        log "Warning: Failed to extract PROJ data for $platform"
+    fi
     
     # Cleanup
-    docker stop "temp-$platform-container"
-    docker rm "temp-$platform-container"
+    docker stop "temp-$platform-container" || log "Warning: Failed to stop container"
+    docker rm "temp-$platform-container" || log "Warning: Failed to remove container"
     
     success "$platform build completed"
 }
