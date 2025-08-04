@@ -1,0 +1,119 @@
+# Stage 1: Builder
+FROM mcr.microsoft.com/windows/servercore:ltsc2022 AS builder
+
+ARG GDAL_VERSION
+ARG PROJ_VERSION
+ARG GEOS_VERSION
+ARG SQLITE_VERSION
+
+SHELL ["powershell", "-Command", "$ErrorActionPreference = 'Stop'; $ProgressPreference = 'SilentlyContinue';"]
+
+RUN iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
+RUN choco install -y cmake git curl 7zip visualstudio2022buildtools --package-parameters "--add Microsoft.VisualStudio.Workload.VCTools"
+
+RUN $env:PATH += ';C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin'
+ENV VCPKG_DEFAULT_TRIPLET=x64-windows-static
+
+WORKDIR C:\build
+
+RUN curl -L -o sqlite.zip https://www.sqlite.org/2024/sqlite-amalgamation-$env:SQLITE_VERSION.zip; \
+    curl -L -o proj.tar.gz https://download.osgeo.org/proj/proj-$env:PROJ_VERSION.tar.gz; \
+    curl -L -o geos.tar.bz2 https://download.osgeo.org/geos/geos-$env:GEOS_VERSION.tar.bz2; \
+    curl -L -o gdal.tar.gz https://github.com/OSGeo/gdal/releases/download/v$env:GDAL_VERSION/gdal-$env:GDAL_VERSION.tar.gz
+
+# Build SQLite (static)
+RUN 7z x sqlite.zip; \
+    cd sqlite-amalgamation-$env:SQLITE_VERSION; \
+    cl /c /O2 /DSQLITE_ENABLE_COLUMN_METADATA=1 /DSQLITE_ENABLE_RTREE=1 /DSQLITE_THREADSAFE=1 /DSQLITE_ENABLE_FTS3=1 /DSQLITE_ENABLE_FTS4=1 /DSQLITE_ENABLE_FTS5=1 sqlite3.c; \
+    lib sqlite3.obj /OUT:sqlite3.lib; \
+    mkdir C:\local\include; mkdir C:\local\lib; \
+    copy sqlite3.h C:\local\include\; \
+    copy sqlite3.lib C:\local\lib\;
+
+# Build PROJ (static)
+RUN 7z x proj.tar.gz; 7z x proj.tar; \
+    cd proj-$env:PROJ_VERSION; \
+    mkdir build; cd build; \
+    cmake .. -G "Visual Studio 17 2022" -A x64 \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_INSTALL_PREFIX=C:\local \
+    -DENABLE_TIFF=OFF \
+    -DENABLE_CURL=OFF \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_PROJSYNC=OFF \
+    -DBUILD_PROJINFO=OFF \
+    -DBUILD_PROJ=OFF \
+    -DBUILD_GEOD=OFF \
+    -DBUILD_CS2CS=OFF \
+    -DBUILD_CCT=OFF \
+    -DBUILD_GIE=OFF \
+    -DSQLITE3_INCLUDE_DIR=C:\local\include \
+    -DSQLITE3_LIBRARY=C:\local\lib\sqlite3.lib; \
+    cmake --build . --config Release; \
+    cmake --install . --config Release
+
+# Build GEOS (static)
+RUN 7z x geos.tar.bz2; \
+    cd geos-$env:GEOS_VERSION; \
+    mkdir build; cd build; \
+    cmake .. -G "Visual Studio 17 2022" -A x64 \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_INSTALL_PREFIX=C:\local \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_DOCUMENTATION=OFF; \
+    cmake --build . --config Release; \
+    cmake --install . --config Release
+
+# Build GDAL (static)
+RUN 7z x gdal.tar.gz; 7z x gdal.tar; \
+    cd gdal-$env:GDAL_VERSION; \
+    mkdir build; cd build; \
+    cmake .. -G "Visual Studio 17 2022" -A x64 \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_INSTALL_PREFIX=C:\local \
+    -DGDAL_USE_INTERNAL_LIBS=ON \
+    -DGDAL_USE_SQLITE3=ON \
+    -DSQLite3_ROOT=C:\local \
+    -DGDAL_USE_PROJ=ON \
+    -DPROJ_ROOT=C:\local \
+    -DGDAL_USE_GEOS=ON \
+    -DGEOS_ROOT=C:\local \
+    -DGDAL_USE_ZLIB=ON \
+    -DGDAL_USE_LIBPNG_INTERNAL=ON \
+    -DGDAL_USE_JPEG_INTERNAL=ON \
+    -DGDAL_USE_GEOTIFF_INTERNAL=ON \
+    -DGDAL_USE_TIFF_INTERNAL=ON \
+    -DGDAL_USE_ZSTD_INTERNAL=ON \
+    -DGDAL_USE_WEBP=OFF \
+    -DBUILD_APPS=ON \
+    -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF \
+    -DGDAL_ENABLE_DRIVER_GTIFF=ON \
+    -DGDAL_ENABLE_DRIVER_VRT=ON \
+    -DGDAL_ENABLE_DRIVER_GPKG=ON \
+    -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON \
+    -DGDAL_ENABLE_DRIVER_GEOJSON=ON \
+    -DGDAL_ENABLE_DRIVER_MEM=ON \
+    -DBUILD_PYTHON_BINDINGS=OFF \
+    -DBUILD_JAVA_BINDINGS=OFF \
+    -DBUILD_CSHARP_BINDINGS=OFF \
+    -DBUILD_TESTING=OFF; \
+    cmake --build . --config Release; \
+    cmake --install . --config Release
+
+# Stage 2: Extraction
+FROM mcr.microsoft.com/windows/servercore:ltsc2022 AS export
+COPY --from=builder C:\local\bin\gdalinfo.exe C:\binaries\gdalinfo.exe
+COPY --from=builder C:\local\bin\ogr2ogr.exe C:\binaries\ogr2ogr.exe
+COPY --from=builder C:\local\bin\ogrinfo.exe C:\binaries\ogrinfo.exe
+COPY --from=builder C:\local\bin\gdal_rasterize.exe C:\binaries\gdal_rasterize.exe
+COPY --from=builder C:\local\bin\gdal_translate.exe C:\binaries\gdal_translate.exe
+COPY --from=builder C:\local\share\gdal C:\gdal-data
+COPY --from=builder C:\local\share\proj C:\proj-data
+
+ENV GDAL_DATA=C:\gdal-data
+ENV PROJ_DATA=C:\proj-data
+
+CMD ["ping", "-t", "localhost"]

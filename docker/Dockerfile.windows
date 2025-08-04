@@ -1,4 +1,4 @@
-# Cross-compile GDAL for Windows on Linux
+# Stage 1: Cross-compile GDAL for Windows on Linux
 FROM ubuntu:22.04 AS builder
 
 ARG GDAL_VERSION
@@ -8,69 +8,44 @@ ARG SQLITE_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install basic build tools
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     curl \
-    git \
     pkg-config \
-    unzip \
     mingw-w64 \
     autoconf \
     automake \
     libtool \
-    zlib1g-dev \
     sqlite3 \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
-# Setup MinGW cross-compiler
-ENV CC=x86_64-w64-mingw32-gcc \
+ENV PREFIX=/usr/x86_64-w64-mingw32 \
+    CC=x86_64-w64-mingw32-gcc \
     CXX=x86_64-w64-mingw32-g++ \
     AR=x86_64-w64-mingw32-ar \
     RANLIB=x86_64-w64-mingw32-ranlib \
-    STRIP=x86_64-w64-mingw32-strip \
-    PREFIX=/usr/x86_64-w64-mingw32
+    STRIP=x86_64-w64-mingw32-strip
 
 WORKDIR /build
 
-# Download only necessary sources
-RUN curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
+RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
+    curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
     curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar xj && \
-    curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
     curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz
 
-# Build SQLite for Windows (static)
+# Build SQLite (static)
 RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
     ./configure --host=x86_64-w64-mingw32 --prefix=$PREFIX \
     --disable-shared --enable-static \
-    CC=x86_64-w64-mingw32-gcc \
     CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1 -O2 -w" && \
     make -j$(nproc) && \
     make install && \
     cd /build && \
     rm -rf sqlite-autoconf-${SQLITE_VERSION}
 
-# Build PROJ (static) with comprehensive mutex fix
+# Build PROJ (static)
 RUN cd proj-${PROJ_VERSION} && \
-    # Fix all mutex-related include issues
-    sed -i '1i #include <mutex>' src/mutex.cpp && \
-    sed -i '1i #include <mutex>' src/networkfilemanager.cpp && \
-    # Fix any other files that might need mutex
-    find src -name "*.cpp" -exec grep -l "std::mutex\|std::recursive_mutex" {} \; | \
-    while read file; do \
-    if ! grep -q "#include <mutex>" "$file"; then \
-    sed -i '1i #include <mutex>' "$file"; \
-    fi; \
-    done && \
-    # Also check header files
-    find src include -name "*.h" -o -name "*.hpp" | xargs grep -l "std::mutex\|std::recursive_mutex" | \
-    while read file; do \
-    if ! grep -q "#include <mutex>" "$file"; then \
-    sed -i '1i #include <mutex>' "$file"; \
-    fi; \
-    done && \
     mkdir build && cd build && \
     cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
@@ -92,22 +67,15 @@ RUN cd proj-${PROJ_VERSION} && \
     -DBUILD_GIE=OFF \
     -DSQLITE3_INCLUDE_DIR=$PREFIX/include \
     -DSQLITE3_LIBRARY=$PREFIX/lib/libsqlite3.a \
-    -DCMAKE_CXX_FLAGS="-O2 -w -std=c++14 -pthread" \
-    -DCMAKE_C_FLAGS="-O2 -w -pthread" && \
+    -DCMAKE_CXX_FLAGS="-O2 -w" \
+    -DCMAKE_C_FLAGS="-O2 -w" && \
     make -j$(nproc) && \
     make install && \
     cd /build && \
     rm -rf proj-${PROJ_VERSION}
 
-# Build GEOS (static) with mutex fixes
+# Build GEOS (static)
 RUN cd geos-${GEOS_VERSION} && \
-    # Fix mutex includes in GEOS if needed
-    find src include -name "*.cpp" -o -name "*.h" -o -name "*.hpp" | xargs grep -l "std::mutex\|std::recursive_mutex" | \
-    while read file; do \
-    if ! grep -q "#include <mutex>" "$file"; then \
-    sed -i '1i #include <mutex>' "$file"; \
-    fi; \
-    done && \
     mkdir build && cd build && \
     cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
@@ -119,23 +87,18 @@ RUN cd geos-${GEOS_VERSION} && \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DBUILD_TESTING=OFF \
     -DBUILD_DOCUMENTATION=OFF \
-    -DCMAKE_CXX_FLAGS="-O2 -w -std=c++14 -pthread" \
+    -DCMAKE_CXX_FLAGS="-O2 -w -pthread" \
     -DCMAKE_C_FLAGS="-O2 -w -pthread" && \
     make -j$(nproc) && \
     make install && \
     cd /build && \
     rm -rf geos-${GEOS_VERSION}
 
-# Build GDAL (static) with internal ZLIB
+# Build GDAL (static)
 RUN cd gdal-${GDAL_VERSION} && \
     sed -i 's/&pszSrcBuf/(char**)\&pszSrcBuf/g' port/cpl_recode_iconv.cpp && \
     mkdir build && cd build && \
     PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig \
-    CC=x86_64-w64-mingw32-gcc \
-    CXX=x86_64-w64-mingw32-g++ \
-    AR=x86_64-w64-mingw32-ar \
-    STRIP=x86_64-w64-mingw32-strip \
-    RANLIB=x86_64-w64-mingw32-ranlib \
     cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
     -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
@@ -144,11 +107,10 @@ RUN cd gdal-${GDAL_VERSION} && \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    # Enhanced static linking flags:
-    -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++ -Wl,-Bstatic -lstdc++ -lpthread -Wl,-Bdynamic" \
+    -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
     -DCMAKE_SHARED_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
-    -DCMAKE_CXX_FLAGS="-DACCEPT_USE_OF_DEPRECATED_PROJ_API_H -O2 -w -Wno-old-style-cast -Wno-error" \
-    -DCMAKE_C_FLAGS="-DACCEPT_USE_OF_DEPRECATED_PROJ_API_H -O2 -w" \
+    -DCMAKE_CXX_FLAGS="-O2 -w -Wno-old-style-cast -Wno-error" \
+    -DCMAKE_C_FLAGS="-O2 -w" \
     -DGDAL_USE_INTERNAL_LIBS=ON \
     -DGDAL_USE_SQLITE3=ON \
     -DSQLite3_ROOT=$PREFIX \
@@ -156,8 +118,7 @@ RUN cd gdal-${GDAL_VERSION} && \
     -DPROJ_ROOT=$PREFIX \
     -DGDAL_USE_GEOS=ON \
     -DGEOS_ROOT=$PREFIX \
-    -DGDAL_USE_ZLIB=OFF \
-    -DGDAL_USE_ZLIB_INTERNAL=ON \
+    -DGDAL_USE_ZLIB=ON \
     -DGDAL_USE_LIBPNG_INTERNAL=ON \
     -DGDAL_USE_JPEG_INTERNAL=ON \
     -DGDAL_USE_GEOTIFF_INTERNAL=ON \
@@ -184,7 +145,7 @@ RUN cd gdal-${GDAL_VERSION} && \
     cd /build && \
     rm -rf gdal-${GDAL_VERSION}
 
-# Final stage
+# Stage 2: Extraction
 FROM ubuntu:22.04 AS final
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdalinfo.exe /binaries/gdalinfo.exe
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/ogr2ogr.exe /binaries/ogr2ogr.exe
