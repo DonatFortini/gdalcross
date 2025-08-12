@@ -1,21 +1,17 @@
 #!/bin/bash
 
-# Centralized version configuration
 GDAL_VERSION="3.11.3"
 PROJ_VERSION="9.5.0"
 GEOS_VERSION="3.13.0"
 SQLITE_VERSION="3460100"
 
-# Platform targets
-PLATFORMS=("linux" "windows")
+PLATFORMS=("linux" "windows" "macos")
 
-# Logging functions
 log() { echo "ℹ️  $1"; }
 success() { echo "✅ $1"; }
 error() { echo "❌ $1"; exit 1; }
 
-# Create output directory
-mkdir -p binaries
+
 
 build_platform() {
     local platform=$1
@@ -39,20 +35,24 @@ build_platform() {
         error "Failed to create $platform container"
     fi
     
-    mkdir -p "binaries/$platform"
+    mkdir -p "$platform"
+    mkdir -p "$platform/binaries"
+    mkdir -p "$platform/data"
+    mkdir -p "$platform/data/gdal"
+    mkdir -p "$platform/data/proj"
     
     # Extract binaries with error checking
     log "Extracting $platform binaries..."
-    if ! docker cp "temp-$platform-container:/binaries/." "binaries/$platform/"; then
+    if ! docker cp "temp-$platform-container:/binaries/." "$platform/binaries/"; then
         log "Warning: Failed to extract binaries for $platform"
     fi
     
     # Extract data files with error checking
-    if ! docker cp "temp-$platform-container:/gdal-data" "binaries/$platform/"; then
+    if ! docker cp "temp-$platform-container:/gdal-data" "$platform/data/gdal/"; then
         log "Warning: Failed to extract GDAL data for $platform"
     fi
-    
-    if ! docker cp "temp-$platform-container:/proj-data" "binaries/$platform/"; then
+
+    if ! docker cp "temp-$platform-container:/proj-data" "$platform/data/proj/"; then
         log "Warning: Failed to extract PROJ data for $platform"
     fi
     
@@ -63,7 +63,7 @@ build_platform() {
     success "$platform build completed"
 }
 
-# Main build process
+
 for platform in "${PLATFORMS[@]}"; do
     if [[ -f "docker/Dockerfile.$platform" ]]; then
         build_platform "$platform"

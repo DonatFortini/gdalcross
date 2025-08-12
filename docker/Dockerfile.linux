@@ -134,13 +134,13 @@ RUN tar xzf gdal.tar.gz && \
 
 # Stage 2: Create container for extraction 
 FROM alpine:3.19 AS final
-COPY --from=static-builder /usr/local/bin/gdalinfo /binaries/gdalinfo
-COPY --from=static-builder /usr/local/bin/ogr2ogr /binaries/ogr2ogr
-COPY --from=static-builder /usr/local/bin/ogrinfo /binaries/ogrinfo
-COPY --from=static-builder /usr/local/bin/gdal_rasterize /binaries/gdal_rasterize
-COPY --from=static-builder /usr/local/bin/gdal_translate /binaries/gdal_translate
-COPY --from=static-builder /usr/local/share/gdal /gdal-data/
-COPY --from=static-builder /usr/local/share/proj /proj-data/
+COPY --from=static-builder /usr/local/bin/gdalinfo /linux/binaries/gdalinfo
+COPY --from=static-builder /usr/local/bin/ogr2ogr /linux/binaries/ogr2ogr
+COPY --from=static-builder /usr/local/bin/ogrinfo /linux/binaries/ogrinfo
+COPY --from=static-builder /usr/local/bin/gdal_rasterize /linux/binaries/gdal_rasterize
+COPY --from=static-builder /usr/local/bin/gdal_translate /linux/binaries/gdal_translate
+COPY --from=static-builder /usr/local/share/gdal /linux/data/gdal
+COPY --from=static-builder /usr/local/share/proj /linux/data/proj/
 
 ENV GDAL_DATA=/gdal-data
 ENV PROJ_DATA=/proj-data
