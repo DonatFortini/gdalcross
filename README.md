@@ -27,8 +27,6 @@ We welcome contributions from the community! Here's how you can help:
 
 ### Contribution Guidelines
 - Fork the repository and create a feature branch
-- Ensure your code follows existing style conventions
-- Test your changes thoroughly
 - Update documentation if needed
 - Submit a pull request with a clear description of changes
 
@@ -36,20 +34,19 @@ All contributors agree that their contributions will be licensed under the same 
 
 ## Build Methods
 
-### Method 1: Cross-compilation from Linux (Recommended)
-From a Linux machine, you can generate executables for all platforms using cross-compilation.
+From a Linux machine (or using linux containers engine), you can generate executables for all platforms using cross-compilation.
 this method produce :
 - Linux x86_64_GNU executables
 - Windows x86_64_MINGW_GNU executables
-- macOS x86_64 (still in development)
+- macOS ARM64 executables
 #### Prerequisites
-- Linux machine
+- Linux machine or WSL2
 - Docker installed
 - Git
 
 #### Steps
 ```bash
-git clone <repository-url>
+git clone <https://github.com/DonatFortini/gdalcross>
 cd gdalcross
 ./build.sh
 ```
@@ -59,30 +56,20 @@ The `build.sh` script automatically generates static executables for:
 - Windows
 - macOS
 
-### Method 2: Windows Host (Special Case)
-
-⚠️ **Only usable from a physical Windows machine**
-
-This method is specifically designed for native Windows environments and requires particular configuration.
-Produce MSVC static executables for Windows.
-
-#### Windows Host Prerequisites
-- **Windows 11 Pro** (required)
-- **Hyper-V enabled**
-- **WSL2 Engine disabled in Docker Desktop**
-
-#### Required Configuration
-1. Enable Hyper-V in Windows features
-2. In Docker Desktop: Settings → General → Uncheck "Use the WSL 2 based engine"
-3. Restart Docker Desktop
-
-#### Build Process
-```bash
-docker build -f <dockerfile-windows> -t <tag-windows>
-```
 
 ## Output
-The generated executables are completely self-contained and can be deployed on any target platform machine without dependency installation.
+The output of the build will be 3 folders containing the static executables for each platform and their associated data files :
+
+```
+dist
+├── linux
+│   ├── amd64
+│   └── arm64
+├── macos
+│   └── arm64
+└── windows
+    └── amd64
+```
 
 ## Usage Examples with Tauri Sidecar
 

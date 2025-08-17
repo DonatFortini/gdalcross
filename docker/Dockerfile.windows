@@ -1,4 +1,4 @@
-# Stage 1: Cross-compile GDAL for Windows on Linux
+# Stage 1: Cross-compile for Windows
 FROM ubuntu:22.04 AS builder
 
 ARG GDAL_VERSION
@@ -9,17 +9,8 @@ ARG SQLITE_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    curl \
-    pkg-config \
-    gcc-mingw-w64-x86-64-posix \
-    g++-mingw-w64-x86-64-posix \
-    binutils-mingw-w64-x86-64 \
-    autoconf \
-    automake \
-    libtool \
-    sqlite3 \
+    build-essential cmake curl pkg-config autoconf automake libtool sqlite3 \
+    gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PREFIX=/usr/x86_64-w64-mingw32 \
@@ -36,120 +27,79 @@ RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz
     curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar xj && \
     curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz
 
-# Build SQLite (static)
 RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
-    ./configure --host=x86_64-w64-mingw32 --prefix=$PREFIX \
-    --disable-shared --enable-static \
+    ./configure --host=x86_64-w64-mingw32 --prefix=$PREFIX --disable-shared --enable-static \
     CC=x86_64-w64-mingw32-gcc-posix \
     CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1 -O2 -w" && \
-    make -j$(nproc) && \
-    make install && \
-    cd /build && \
-    rm -rf sqlite-autoconf-${SQLITE_VERSION}
+    make -j$(nproc) && make install && cd /build && rm -rf sqlite-autoconf-${SQLITE_VERSION}
 
-# Build PROJ (static)
-RUN cd proj-${PROJ_VERSION} && \
-    mkdir build && cd build && \
-    cmake .. \
-    -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
-    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix \
-    -DCMAKE_INSTALL_PREFIX=$PREFIX \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DENABLE_TIFF=OFF \
-    -DENABLE_CURL=OFF \
-    -DBUILD_TESTING=OFF \
-    -DBUILD_PROJSYNC=OFF \
-    -DBUILD_PROJINFO=OFF \
-    -DBUILD_PROJ=OFF \
-    -DBUILD_GEOD=OFF \
-    -DBUILD_CS2CS=OFF \
-    -DBUILD_CCT=OFF \
-    -DBUILD_GIE=OFF \
-    -DSQLITE3_INCLUDE_DIR=$PREFIX/include \
-    -DSQLITE3_LIBRARY=$PREFIX/lib/libsqlite3.a \
-    -DCMAKE_CXX_FLAGS="-O2 -w" \
-    -DCMAKE_C_FLAGS="-O2 -w" && \
-    make -j$(nproc) && \
-    make install && \
-    cd /build && \
-    rm -rf proj-${PROJ_VERSION}
+RUN cd proj-${PROJ_VERSION} && mkdir build && cd build && \
+    cmake .. -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DENABLE_TIFF=OFF -DENABLE_CURL=OFF -DBUILD_TESTING=OFF -DBUILD_PROJSYNC=OFF \
+    -DBUILD_PROJINFO=OFF -DBUILD_PROJ=OFF -DBUILD_GEOD=OFF -DBUILD_CS2CS=OFF \
+    -DBUILD_CCT=OFF -DBUILD_GIE=OFF -DSQLITE3_INCLUDE_DIR=$PREFIX/include \
+    -DSQLITE3_LIBRARY=$PREFIX/lib/libsqlite3.a -DCMAKE_CXX_FLAGS="-O2 -w" -DCMAKE_C_FLAGS="-O2 -w" && \
+    make -j$(nproc) && make install && cd /build && rm -rf proj-${PROJ_VERSION}
 
-# Build GEOS (static)
-RUN cd geos-${GEOS_VERSION} && \
-    mkdir build && cd build && \
-    cmake .. \
-    -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
-    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix \
-    -DCMAKE_INSTALL_PREFIX=$PREFIX \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DBUILD_TESTING=OFF \
-    -DBUILD_DOCUMENTATION=OFF \
-    -DCMAKE_CXX_FLAGS="-O2 -w" \
-    -DCMAKE_C_FLAGS="-O2 -w" && \
-    make -j$(nproc) && \
-    make install && \
-    cd /build && \
-    rm -rf geos-${GEOS_VERSION}
+RUN cd geos-${GEOS_VERSION} && mkdir build && cd build && \
+    cmake .. -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DBUILD_TESTING=OFF -DBUILD_DOCUMENTATION=OFF -DCMAKE_CXX_FLAGS="-O2 -w" -DCMAKE_C_FLAGS="-O2 -w" && \
+    make -j$(nproc) && make install && cd /build && rm -rf geos-${GEOS_VERSION}
 
-# Build GDAL (static)
 RUN cd gdal-${GDAL_VERSION} && \
     sed -i 's/&pszSrcBuf/(char**)\&pszSrcBuf/g' port/cpl_recode_iconv.cpp && \
     mkdir build && cd build && \
     PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig \
-    cmake .. \
-    -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
-    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix \
-    -DCMAKE_INSTALL_PREFIX=$PREFIX \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    cmake .. -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_EXE_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
     -DCMAKE_SHARED_LINKER_FLAGS="-static -static-libgcc -static-libstdc++" \
-    -DCMAKE_CXX_FLAGS="-O2 -w -Wno-old-style-cast -Wno-error" \
-    -DCMAKE_C_FLAGS="-O2 -w" \
-    -DGDAL_USE_INTERNAL_LIBS=ON \
-    -DGDAL_USE_SQLITE3=ON \
-    -DSQLite3_ROOT=$PREFIX \
-    -DGDAL_USE_PROJ=ON \
-    -DPROJ_ROOT=$PREFIX \
-    -DGDAL_USE_GEOS=ON \
-    -DGEOS_ROOT=$PREFIX \
-    -DGDAL_USE_ZLIB_INTERNAL=ON \
-    -DGDAL_USE_LIBPNG_INTERNAL=ON \
-    -DGDAL_USE_JPEG_INTERNAL=ON \
-    -DGDAL_USE_GEOTIFF_INTERNAL=ON \
-    -DGDAL_USE_TIFF_INTERNAL=ON \
-    -DGDAL_USE_ZSTD=OFF \
-    -DGDAL_USE_ZSTD_INTERNAL=ON \
-    -DGDAL_USE_WEBP=OFF \
-    -DBUILD_APPS=ON \
-    -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF \
-    -DGDAL_ENABLE_DRIVER_GTIFF=ON \
-    -DGDAL_ENABLE_DRIVER_VRT=ON \
-    -DGDAL_ENABLE_DRIVER_GPKG=ON \
-    -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON \
-    -DGDAL_ENABLE_DRIVER_GEOJSON=ON \
-    -DGDAL_ENABLE_DRIVER_MEM=ON \
-    -DBUILD_PYTHON_BINDINGS=OFF \
-    -DBUILD_JAVA_BINDINGS=OFF \
-    -DBUILD_CSHARP_BINDINGS=OFF \
-    -DBUILD_TESTING=OFF \
-    -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON \
+    -DCMAKE_CXX_FLAGS="-O2 -w -Wno-old-style-cast -Wno-error" -DCMAKE_C_FLAGS="-O2 -w" \
+    -DGDAL_USE_INTERNAL_LIBS=ON -DGDAL_USE_SQLITE3=ON -DSQLite3_ROOT=$PREFIX \
+    -DGDAL_USE_PROJ=ON -DPROJ_ROOT=$PREFIX -DGDAL_USE_GEOS=ON -DGEOS_ROOT=$PREFIX \
+    -DGDAL_USE_ZLIB_INTERNAL=ON -DGDAL_USE_LIBPNG_INTERNAL=ON -DGDAL_USE_JPEG_INTERNAL=ON \
+    -DGDAL_USE_GEOTIFF_INTERNAL=ON -DGDAL_USE_TIFF_INTERNAL=ON -DGDAL_USE_ZSTD=OFF \
+    -DGDAL_USE_ZSTD_INTERNAL=ON -DGDAL_USE_WEBP=OFF -DBUILD_APPS=ON \
+    -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF -DGDAL_ENABLE_DRIVER_GTIFF=ON -DGDAL_ENABLE_DRIVER_VRT=ON \
+    -DGDAL_ENABLE_DRIVER_GPKG=ON -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON -DGDAL_ENABLE_DRIVER_GEOJSON=ON \
+    -DGDAL_ENABLE_DRIVER_MEM=ON -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_JAVA_BINDINGS=OFF \
+    -DBUILD_CSHARP_BINDINGS=OFF -DBUILD_TESTING=OFF -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON \
     -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
-    make -j$(nproc) && \
-    make install && \
-    cd /build && \
-    rm -rf gdal-${GDAL_VERSION}
+    make -j$(nproc) && make install && cd /build && rm -rf gdal-${GDAL_VERSION}
 
-# Stage 2: Extraction
-FROM ubuntu:22.04 AS final
+RUN echo "=== Standalone Verification ===" && \
+    for binary in gdalinfo.exe ogr2ogr.exe ogrinfo.exe gdal_rasterize.exe gdal_translate.exe; do \
+    if [ -f "$PREFIX/bin/$binary" ]; then \
+    echo "Checking $binary..." && \
+    DEPS=$(x86_64-w64-mingw32-objdump -p "$PREFIX/bin/$binary" | grep "DLL Name:" | awk '{print $3}') && \
+    NON_SYSTEM=0 && \
+    for dep in $DEPS; do \
+    case "$dep" in \
+    msvcrt.dll|kernel32.dll|user32.dll|advapi32.dll|shell32.dll|ole32.dll|oleaut32.dll|uuid.dll|gdi32.dll|comdlg32.dll|winspool.drv|winmm.dll|ws2_32.dll|mswsock.dll) \
+    ;; \
+    *) \
+    echo "  Non-system dependency: $dep"; \
+    NON_SYSTEM=$((NON_SYSTEM + 1)) ;; \
+    esac; \
+    done && \
+    if [ $NON_SYSTEM -eq 0 ]; then \
+    echo "✓ $binary: Standalone (system DLLs only)"; \
+    else \
+    echo "✗ $binary: $NON_SYSTEM non-system dependencies"; \
+    fi; \
+    fi; \
+    done
+
+# Stage 2: Final container
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y coreutils && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdalinfo.exe /binaries/gdalinfo.exe
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/ogr2ogr.exe /binaries/ogr2ogr.exe
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/ogrinfo.exe /binaries/ogrinfo.exe
@@ -158,5 +108,4 @@ COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdal_translate.exe /binaries/gda
 COPY --from=builder /usr/x86_64-w64-mingw32/share/gdal/ /gdal-data/
 COPY --from=builder /usr/x86_64-w64-mingw32/share/proj/ /proj-data/
 
-RUN apt-get update && apt-get install -y coreutils && rm -rf /var/lib/apt/lists/*
 CMD ["tail", "-f", "/dev/null"]
