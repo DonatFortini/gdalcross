@@ -3,7 +3,9 @@
 Don't know if it was done before, I searched for it but didn't find anything, so I made this.
 
 ## Project Purpose
-This project's purpose is the creation of **completely static and standalone** GDAL executables for all platforms (Linux, Windows, macOS). These executables are fully autonomous and require no external dependencies (verifiable with `ldd`).
+This project's purpose is the creation of **completely static and standalone** GDAL executables for all platforms (Linux, Windows, macOS). These executables are fully autonomous and require no external dependencies (checked with `ldd`,`otool`, etc...).
+
+N.B : to me, the term "standalone" means that the binaries do not rely on any shared libraries or external dependencies at runtime and only depends on OS core libraries.
 
 ## License
 This project is released under the **GNU General Public License v3.0 (GPL-3.0)**. This ensures that the software remains free and open source, and any derivative works must also be distributed under the same license terms.
@@ -46,7 +48,7 @@ this method produce :
 
 #### Steps
 ```bash
-git clone <https://github.com/DonatFortini/gdalcross>
+git clone https://github.com/DonatFortini/gdalcross
 cd gdalcross
 ./build.sh
 ```
