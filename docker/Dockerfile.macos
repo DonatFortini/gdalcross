@@ -1,1 +1,262 @@
-#TODO
+#macOS ARM64 cross-compilation using OSXCross
+FROM ubuntu:22.04 AS builder
+
+ARG GDAL_VERSION
+ARG PROJ_VERSION
+ARG SQLITE_VERSION
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential cmake curl wget git pkg-config autoconf automake libtool \
+    sqlite3 zlib1g-dev file python3 xz-utils \
+    libxml2-dev libssl-dev clang llvm-dev libbz2-dev \
+    libz-dev lzma-dev libmpc-dev libmpfr-dev libgmp-dev \
+    uuid-dev libgpg-error-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build OSXCross toolchain
+WORKDIR /opt
+RUN git clone https://github.com/tpoechtrager/osxcross.git
+WORKDIR /opt/osxcross
+
+# Download macOS SDK with verification
+RUN echo "Downloading macOS SDK..." && \
+    wget -O tarballs/MacOSX12.3.sdk.tar.xz \
+    "https://github.com/joseluisq/macosx-sdks/releases/download/12.3/MacOSX12.3.sdk.tar.xz" || \
+    (echo "SDK download failed, trying alternative..." && \
+    wget -O tarballs/MacOSX12.3.sdk.tar.xz \
+    "https://github.com/phracker/MacOSX-SDKs/releases/download/12.3/MacOSX12.3.sdk.tar.xz")
+
+# Verify SDK download
+RUN ls -la tarballs/ && \
+    file tarballs/MacOSX12.3.sdk.tar.xz && \
+    echo "SDK verification complete"
+
+# Build OSXCross with detailed logging
+ENV UNATTENDED=1
+RUN echo "Building OSXCross toolchain..." && \
+    UNATTENDED=1 ./build.sh && \
+    echo "Checking OSXCross build results..." && \
+    ls -la target/ && \
+    ls -la target/bin/ && \
+    echo "OSXCross build completed"
+
+ENV OSXCROSS_TARGET_DIR="/opt/osxcross/target"
+ENV PATH="/opt/osxcross/target/bin:$PATH"
+ENV PREFIX="/opt/macos-build"
+ENV HOST_PREFIX="/usr/local"
+
+# Create optimized CMake toolchain with dynamic compiler detection
+RUN mkdir -p /opt/cmake
+RUN echo "Detecting OSXCross compilers..." && \
+    CLANG_CC=$(ls /opt/osxcross/target/bin/*apple-darwin*-clang | grep -v clang++ | head -1) && \
+    CLANG_CXX=$(ls /opt/osxcross/target/bin/*apple-darwin*-clang++ | head -1) && \
+    CLANG_AR=$(ls /opt/osxcross/target/bin/*apple-darwin*-ar | head -1) && \
+    CLANG_RANLIB=$(ls /opt/osxcross/target/bin/*apple-darwin*-ranlib | head -1) && \
+    echo "Found CC: $CLANG_CC" && \
+    echo "Found CXX: $CLANG_CXX" && \
+    echo "Found AR: $CLANG_AR" && \
+    echo "Found RANLIB: $CLANG_RANLIB" && \
+    echo 'set(CMAKE_SYSTEM_NAME Darwin)' > /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_SYSTEM_PROCESSOR arm64)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_OSX_ARCHITECTURES arm64)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0")' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '# Compilers' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo "set(CMAKE_C_COMPILER $CLANG_CC)" >> /opt/cmake/osxcross-arm64.cmake && \
+    echo "set(CMAKE_CXX_COMPILER $CLANG_CXX)" >> /opt/cmake/osxcross-arm64.cmake && \
+    echo "set(CMAKE_AR $CLANG_AR)" >> /opt/cmake/osxcross-arm64.cmake && \
+    echo "set(CMAKE_RANLIB $CLANG_RANLIB)" >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '# Skip compiler tests' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_C_COMPILER_WORKS 1)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_CXX_COMPILER_WORKS 1)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '# Cross-compilation settings' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH ${PREFIX})' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '# Static linking preferences' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".dylib")' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(BUILD_SHARED_LIBS OFF)' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo '# Host tools' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(CMAKE_PROGRAM_PATH "/usr/bin:/usr/local/bin")' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo 'set(EXE_SQLITE3 "/usr/bin/sqlite3")' >> /opt/cmake/osxcross-arm64.cmake && \
+    echo "CMake toolchain created successfully"
+
+# Test OSXCross with fallback detection
+WORKDIR /tmp
+RUN echo "Testing OSXCross toolchain..." && \
+    echo "Available compilers in PATH:" && \
+    ls -la /opt/osxcross/target/bin/ | grep clang && \
+    echo "Testing compiler availability..." && \
+    COMPILER=$(ls /opt/osxcross/target/bin/*apple-darwin*-clang | head -1) && \
+    echo "Using compiler: $COMPILER" && \
+    echo 'int main(){return 0;}' > test.c && \
+    $COMPILER test.c -o test && \
+    file test && \
+    echo "OSXCross test: SUCCESS" && \
+    rm test test.c
+
+WORKDIR /build
+
+# Download sources
+RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
+    curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
+    curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz
+
+# Build host SQLite3 (for PROJ database generation)
+RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
+    ./configure \
+    --prefix=$HOST_PREFIX \
+    --disable-shared \
+    --enable-static \
+    --disable-dynamic-extensions \
+    CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -O2" && \
+    make -j$(nproc) && \
+    make install && \
+    make clean
+
+# Build target SQLite3 (static)
+RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
+    OSXCROSS_CC=$(ls /opt/osxcross/target/bin/*apple-darwin*-clang | grep -v clang++ | head -1) && \
+    OSXCROSS_AR=$(ls /opt/osxcross/target/bin/*apple-darwin*-ar | head -1) && \
+    OSXCROSS_RANLIB=$(ls /opt/osxcross/target/bin/*apple-darwin*-ranlib | head -1) && \
+    echo "Using OSXCross tools:" && \
+    echo "  CC: $OSXCROSS_CC" && \
+    echo "  AR: $OSXCROSS_AR" && \
+    echo "  RANLIB: $OSXCROSS_RANLIB" && \
+    ./configure \
+    --host=aarch64-apple-darwin \
+    --prefix=$PREFIX \
+    --disable-shared \
+    --enable-static \
+    --disable-dynamic-extensions \
+    CC="$OSXCROSS_CC" \
+    AR="$OSXCROSS_AR" \
+    RANLIB="$OSXCROSS_RANLIB" \
+    CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -O2" && \
+    make -j$(nproc) && \
+    make install && \
+    echo "Re-indexing SQLite3 archive..." && \
+    $OSXCROSS_RANLIB $PREFIX/lib/libsqlite3.a && \
+    echo "Verifying SQLite3 archive:" && \
+    file $PREFIX/lib/libsqlite3.a && \
+    echo "Target SQLite3: SUCCESS" && \
+    cd .. && rm -rf sqlite-autoconf-${SQLITE_VERSION}
+
+# Build PROJ
+RUN cd proj-${PROJ_VERSION} && \
+    mkdir build && cd build && \
+    cmake .. \
+    -DCMAKE_TOOLCHAIN_FILE=/opt/cmake/osxcross-arm64.cmake \
+    -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DENABLE_TIFF=OFF \
+    -DENABLE_CURL=OFF \
+    -DBUILD_TESTING=OFF \
+    -DBUILD_PROJSYNC=OFF \
+    -DBUILD_PROJINFO=OFF \
+    -DBUILD_PROJ=OFF \
+    -DBUILD_GEOD=OFF \
+    -DBUILD_CS2CS=OFF \
+    -DBUILD_CCT=OFF \
+    -DBUILD_GIE=OFF \
+    -DBUILD_APPS=OFF \
+    -DSQLITE3_INCLUDE_DIR=$PREFIX/include \
+    -DSQLITE3_LIBRARY=$PREFIX/lib/libsqlite3.a \
+    -DEXE_SQLITE3=/usr/bin/sqlite3 && \
+    make -j$(nproc) && \
+    make install && \
+    file $PREFIX/lib/libproj.a && \
+    echo "PROJ: SUCCESS" && \
+    cd ../.. && rm -rf proj-${PROJ_VERSION}
+
+# Build GDAL
+RUN cd gdal-${GDAL_VERSION} && \
+    mkdir build && cd build && \
+    cmake .. \
+    -DCMAKE_TOOLCHAIN_FILE=/opt/cmake/osxcross-arm64.cmake \
+    -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DGDAL_USE_INTERNAL_LIBS=ON \
+    -DGDAL_USE_SQLITE3=ON \
+    -DSQLite3_ROOT=$PREFIX \
+    -DGDAL_USE_PROJ=ON \
+    -DPROJ_ROOT=$PREFIX \
+    -DGDAL_USE_GEOS=OFF \
+    -DGDAL_USE_ZLIB_INTERNAL=ON \
+    -DGDAL_USE_LIBPNG_INTERNAL=ON \
+    -DGDAL_USE_JPEG_INTERNAL=ON \
+    -DGDAL_USE_GEOTIFF_INTERNAL=ON \
+    -DGDAL_USE_TIFF_INTERNAL=ON \
+    -DGDAL_USE_ZSTD_INTERNAL=ON \
+    -DGDAL_USE_WEBP=OFF \
+    -DGDAL_USE_ICONV=OFF \
+    -DGDAL_USE_CURL=OFF \
+    -DGDAL_USE_LIBXML2=OFF \
+    -DGDAL_USE_EXPAT=OFF \
+    -DGDAL_USE_OPENSSL=OFF \
+    -DGDAL_USE_CRYPTO=OFF \
+    -DBUILD_APPS=ON \
+    -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF \
+    -DGDAL_ENABLE_DRIVER_GTIFF=ON \
+    -DGDAL_ENABLE_DRIVER_VRT=ON \
+    -DGDAL_ENABLE_DRIVER_GPKG=ON \
+    -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON \
+    -DGDAL_ENABLE_DRIVER_GEOJSON=ON \
+    -DGDAL_ENABLE_DRIVER_MEM=ON \
+    -DBUILD_PYTHON_BINDINGS=OFF \
+    -DBUILD_JAVA_BINDINGS=OFF \
+    -DBUILD_CSHARP_BINDINGS=OFF \
+    -DBUILD_TESTING=OFF \
+    -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON \
+    -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
+    make -j$(nproc) && \
+    make install && \
+    echo "GDAL: SUCCESS"
+
+
+FROM ubuntu:22.04
+
+RUN apt-get update && apt-get install -y file && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/macos-build/bin/gdalinfo /binaries/gdalinfo
+COPY --from=builder /opt/macos-build/bin/ogr2ogr /binaries/ogr2ogr
+COPY --from=builder /opt/macos-build/bin/ogrinfo /binaries/ogrinfo
+COPY --from=builder /opt/macos-build/bin/gdal_rasterize /binaries/gdal_rasterize
+COPY --from=builder /opt/macos-build/bin/gdal_translate /binaries/gdal_translate
+COPY --from=builder /opt/macos-build/share/gdal/ /gdal-data/
+COPY --from=builder /opt/macos-build/share/proj/ /proj-data/
+
+# Final verification
+RUN echo "=== macOS ARM64 Cross-compilation Complete ===" && \
+    echo "Built with OSXCross for maximum compatibility" && \
+    echo "" && \
+    echo "=== Available Binaries ===" && \
+    ls -la /binaries/ && \
+    echo "" && \
+    echo "=== Architecture Verification ===" && \
+    for binary in gdalinfo ogr2ogr ogrinfo; do \
+    if [ -f "/binaries/$binary" ]; then \
+    echo "$binary: $(file /binaries/$binary)"; \
+    fi; \
+    done && \
+    echo "" && \
+    echo "=== Usage ===" && \
+    echo "1. Copy /binaries/* to your macOS ARM64 system" && \
+    echo "2. Copy /gdal-data and /proj-data directories" && \
+    echo "3. Set environment variables:" && \
+    echo "   export GDAL_DATA=/path/to/gdal-data" && \
+    echo "   export PROJ_LIB=/path/to/proj-data" && \
+    echo "4. Run: ./gdalinfo --version"
+
+CMD ["tail", "-f", "/dev/null"]

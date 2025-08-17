@@ -25,7 +25,6 @@ RUN apk update && apk add --no-cache \
 
 WORKDIR /tmp
 
-
 RUN curl -L -o sqlite.tar.gz https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz && \
     curl -L -o proj.tar.gz https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz && \
     curl -L -o geos.tar.bz2 https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 && \
@@ -140,10 +139,10 @@ COPY --from=static-builder /usr/local/bin/ogrinfo /linux/binaries/ogrinfo
 COPY --from=static-builder /usr/local/bin/gdal_rasterize /linux/binaries/gdal_rasterize
 COPY --from=static-builder /usr/local/bin/gdal_translate /linux/binaries/gdal_translate
 COPY --from=static-builder /usr/local/share/gdal /linux/data/gdal
-COPY --from=static-builder /usr/local/share/proj /linux/data/proj/
+COPY --from=static-builder /usr/local/share/proj /linux/data/proj
 
-ENV GDAL_DATA=/gdal-data
-ENV PROJ_DATA=/proj-data
+ENV GDAL_DATA=/linux/data/gdal
+ENV PROJ_DATA=/linux/data/proj
 
 # Keep container running for extraction
 CMD ["tail", "-f", "/dev/null"]

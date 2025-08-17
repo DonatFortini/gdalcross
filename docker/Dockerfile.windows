@@ -13,7 +13,9 @@ RUN apt-get update && apt-get install -y \
     cmake \
     curl \
     pkg-config \
-    mingw-w64 \
+    gcc-mingw-w64-x86-64-posix \
+    g++-mingw-w64-x86-64-posix \
+    binutils-mingw-w64-x86-64 \
     autoconf \
     automake \
     libtool \
@@ -21,8 +23,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PREFIX=/usr/x86_64-w64-mingw32 \
-    CC=x86_64-w64-mingw32-gcc \
-    CXX=x86_64-w64-mingw32-g++ \
+    CC=x86_64-w64-mingw32-gcc-posix \
+    CXX=x86_64-w64-mingw32-g++-posix \
     AR=x86_64-w64-mingw32-ar \
     RANLIB=x86_64-w64-mingw32-ranlib \
     STRIP=x86_64-w64-mingw32-strip
@@ -38,6 +40,7 @@ RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz
 RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
     ./configure --host=x86_64-w64-mingw32 --prefix=$PREFIX \
     --disable-shared --enable-static \
+    CC=x86_64-w64-mingw32-gcc-posix \
     CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1 -O2 -w" && \
     make -j$(nproc) && \
     make install && \
@@ -49,8 +52,8 @@ RUN cd proj-${PROJ_VERSION} && \
     mkdir build && cd build && \
     cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix \
     -DCMAKE_INSTALL_PREFIX=$PREFIX \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
@@ -79,16 +82,16 @@ RUN cd geos-${GEOS_VERSION} && \
     mkdir build && cd build && \
     cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix \
     -DCMAKE_INSTALL_PREFIX=$PREFIX \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
     -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DBUILD_TESTING=OFF \
     -DBUILD_DOCUMENTATION=OFF \
-    -DCMAKE_CXX_FLAGS="-O2 -w -pthread" \
-    -DCMAKE_C_FLAGS="-O2 -w -pthread" && \
+    -DCMAKE_CXX_FLAGS="-O2 -w" \
+    -DCMAKE_C_FLAGS="-O2 -w" && \
     make -j$(nproc) && \
     make install && \
     cd /build && \
@@ -101,8 +104,8 @@ RUN cd gdal-${GDAL_VERSION} && \
     PKG_CONFIG_PATH=$PREFIX/lib/pkgconfig \
     cmake .. \
     -DCMAKE_SYSTEM_NAME=Windows \
-    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc-posix \
+    -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++-posix \
     -DCMAKE_INSTALL_PREFIX=$PREFIX \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=OFF \
@@ -118,7 +121,7 @@ RUN cd gdal-${GDAL_VERSION} && \
     -DPROJ_ROOT=$PREFIX \
     -DGDAL_USE_GEOS=ON \
     -DGEOS_ROOT=$PREFIX \
-    -DGDAL_USE_ZLIB=ON \
+    -DGDAL_USE_ZLIB_INTERNAL=ON \
     -DGDAL_USE_LIBPNG_INTERNAL=ON \
     -DGDAL_USE_JPEG_INTERNAL=ON \
     -DGDAL_USE_GEOTIFF_INTERNAL=ON \
