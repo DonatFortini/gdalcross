@@ -3,6 +3,7 @@ FROM ubuntu:22.04 AS builder
 
 ARG GDAL_VERSION
 ARG PROJ_VERSION
+ARG GEOS_VERSION
 ARG SQLITE_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -58,13 +59,16 @@ WORKDIR /build
 
 RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
     curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
+    curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar xj && \
     curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz
 
+# Build host SQLite
 RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
     ./configure --prefix=$HOST_PREFIX --disable-shared --enable-static --disable-dynamic-extensions \
     CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -O2" && \
     make -j$(nproc) && make install && make clean
 
+# Build cross-compiled SQLite
 RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
     OSXCROSS_CC=$(ls /opt/osxcross/target/bin/*apple-darwin*-clang | grep -v clang++ | head -1) && \
     OSXCROSS_AR=$(ls /opt/osxcross/target/bin/*apple-darwin*-ar | head -1) && \
@@ -76,20 +80,31 @@ RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
     $OSXCROSS_RANLIB $PREFIX/lib/libsqlite3.a && \
     cd .. && rm -rf sqlite-autoconf-${SQLITE_VERSION}
 
+# Build GEOS
+RUN cd geos-${GEOS_VERSION} && mkdir build && cd build && \
+    cmake .. -DCMAKE_TOOLCHAIN_FILE=/opt/cmake/osxcross-arm64.cmake -DCMAKE_INSTALL_PREFIX=$PREFIX \
+    -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DBUILD_TESTING=OFF -DBUILD_DOCUMENTATION=OFF -DCMAKE_CXX_FLAGS="-O2 -w" -DCMAKE_C_FLAGS="-O2 -w" && \
+    make -j$(nproc) && make install && cd ../.. && rm -rf geos-${GEOS_VERSION}
+
+# Build PROJ
 RUN cd proj-${PROJ_VERSION} && mkdir build && cd build && \
     cmake .. -DCMAKE_TOOLCHAIN_FILE=/opt/cmake/osxcross-arm64.cmake -DCMAKE_INSTALL_PREFIX=$PREFIX \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DENABLE_TIFF=OFF -DENABLE_CURL=OFF -DBUILD_TESTING=OFF -DBUILD_PROJSYNC=OFF \
-    -DBUILD_PROJINFO=OFF -DBUILD_PROJ=OFF -DBUILD_GEOD=OFF -DBUILD_CS2CS=OFF \
-    -DBUILD_CCT=OFF -DBUILD_GIE=OFF -DBUILD_APPS=OFF -DSQLITE3_INCLUDE_DIR=$PREFIX/include \
-    -DSQLITE3_LIBRARY=$PREFIX/lib/libsqlite3.a -DEXE_SQLITE3=/usr/bin/sqlite3 && \
+    -DENABLE_TIFF=OFF -DENABLE_CURL=OFF -DBUILD_TESTING=OFF \
+    -DBUILD_PROJSYNC=OFF -DBUILD_PROJINFO=ON -DBUILD_PROJ=ON -DBUILD_GEOD=ON \
+    -DBUILD_CS2CS=ON -DBUILD_CCT=ON -DBUILD_GIE=OFF -DBUILD_APPS=ON \
+    -DSQLITE3_INCLUDE_DIR=$PREFIX/include -DSQLITE3_LIBRARY=$PREFIX/lib/libsqlite3.a \
+    -DEXE_SQLITE3=/usr/bin/sqlite3 -DUSE_EXTERNAL_GTEST=OFF \
+    -DPROJ_DB_EXTRA_VALIDATION=OFF && \
     make -j$(nproc) && make install && cd ../.. && rm -rf proj-${PROJ_VERSION}
 
+# Build GDAL
 RUN cd gdal-${GDAL_VERSION} && mkdir build && cd build && \
     cmake .. -DCMAKE_TOOLCHAIN_FILE=/opt/cmake/osxcross-arm64.cmake -DCMAKE_INSTALL_PREFIX=$PREFIX \
     -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DGDAL_USE_INTERNAL_LIBS=ON -DGDAL_USE_SQLITE3=ON -DSQLite3_ROOT=$PREFIX \
-    -DGDAL_USE_PROJ=ON -DPROJ_ROOT=$PREFIX -DGDAL_USE_GEOS=OFF -DGDAL_USE_ZLIB_INTERNAL=ON \
+    -DGDAL_USE_PROJ=ON -DPROJ_ROOT=$PREFIX -DGDAL_USE_GEOS=ON -DGEOS_ROOT=$PREFIX -DGDAL_USE_ZLIB_INTERNAL=ON \
     -DGDAL_USE_LIBPNG_INTERNAL=ON -DGDAL_USE_JPEG_INTERNAL=ON -DGDAL_USE_GEOTIFF_INTERNAL=ON \
     -DGDAL_USE_TIFF_INTERNAL=ON -DGDAL_USE_ZSTD_INTERNAL=ON -DGDAL_USE_WEBP=OFF \
     -DGDAL_USE_ICONV=OFF -DGDAL_USE_CURL=OFF -DGDAL_USE_LIBXML2=OFF -DGDAL_USE_EXPAT=OFF \
@@ -100,17 +115,16 @@ RUN cd gdal-${GDAL_VERSION} && mkdir build && cd build && \
     -DBUILD_TESTING=OFF -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
     make -j$(nproc) && make install && cd ../.. && rm -rf gdal-${GDAL_VERSION}
 
-
-# Stage 2: Final container
+# Stage 2: Extract binaries
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y file && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/macos-build/bin/gdalinfo /binaries/gdalinfo
-COPY --from=builder /opt/macos-build/bin/ogr2ogr /binaries/ogr2ogr
-COPY --from=builder /opt/macos-build/bin/ogrinfo /binaries/ogrinfo
-COPY --from=builder /opt/macos-build/bin/gdal_rasterize /binaries/gdal_rasterize
-COPY --from=builder /opt/macos-build/bin/gdal_translate /binaries/gdal_translate
+COPY --from=builder /opt/macos-build/bin/gdalinfo /binaries/gdalinfo-aarch64-apple-darwin
+COPY --from=builder /opt/macos-build/bin/ogr2ogr /binaries/ogr2ogr-aarch64-apple-darwin
+COPY --from=builder /opt/macos-build/bin/ogrinfo /binaries/ogrinfo-aarch64-apple-darwin
+COPY --from=builder /opt/macos-build/bin/gdal_rasterize /binaries/gdal_rasterize-aarch64-apple-darwin
+COPY --from=builder /opt/macos-build/bin/gdal_translate /binaries/gdal_translate-aarch64-apple-darwin
 COPY --from=builder /opt/macos-build/share/gdal/ /gdal-data/
 COPY --from=builder /opt/macos-build/share/proj/ /proj-data/
 

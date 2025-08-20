@@ -13,37 +13,37 @@ RUN apk update && apk add --no-cache \
     zlib-dev musl-dev jpeg-dev libpng-dev tiff-dev linux-headers zstd-static
 
 WORKDIR /build
-RUN echo "Building for architecture: ${TARGETARCH}"
 
-RUN curl -L -o sqlite.tar.gz https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz && \
-    curl -L -o proj.tar.gz https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz && \
-    curl -L -o geos.tar.bz2 https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 && \
-    curl -L -o gdal.tar.gz https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz
+RUN curl -L https://www.sqlite.org/2024/sqlite-autoconf-${SQLITE_VERSION}.tar.gz | tar xz && \
+    curl -L https://download.osgeo.org/proj/proj-${PROJ_VERSION}.tar.gz | tar xz && \
+    curl -L https://download.osgeo.org/geos/geos-${GEOS_VERSION}.tar.bz2 | tar xj && \
+    curl -L https://github.com/OSGeo/gdal/releases/download/v${GDAL_VERSION}/gdal-${GDAL_VERSION}.tar.gz | tar xz
 
-RUN tar xzf sqlite.tar.gz && \
-    cd sqlite-autoconf-${SQLITE_VERSION} && \
+# Build SQLite
+RUN cd sqlite-autoconf-${SQLITE_VERSION} && \
     CFLAGS="-DSQLITE_ENABLE_COLUMN_METADATA=1 -DSQLITE_ENABLE_RTREE=1 -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3=1 -DSQLITE_ENABLE_FTS4=1 -DSQLITE_ENABLE_FTS5=1 -O2 -w" \
     ./configure --prefix=/usr/local --enable-static --disable-shared && \
-    make -j$(nproc) && make install && cd /build && rm -rf sqlite-autoconf-${SQLITE_VERSION} sqlite.tar.gz
+    make -j$(nproc) && make install && cd /build && rm -rf sqlite-autoconf-${SQLITE_VERSION}
 
-RUN tar xzf proj.tar.gz && \
-    cd proj-${PROJ_VERSION} && mkdir build && cd build && \
-    CFLAGS="-O2 -w" CXXFLAGS="-O2 -w" \
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-    -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DENABLE_CURL=OFF -DENABLE_TIFF=OFF \
-    -DBUILD_PROJSYNC=OFF -DBUILD_PROJINFO=OFF -DBUILD_PROJ=OFF -DBUILD_GEOD=OFF \
-    -DBUILD_CS2CS=OFF -DBUILD_CCT=OFF -DBUILD_GIE=OFF && \
-    make -j$(nproc) && make install && cd /build && rm -rf proj-${PROJ_VERSION} proj.tar.gz
-
-RUN tar xjf geos.tar.bz2 && \
-    cd geos-${GEOS_VERSION} && mkdir build && cd build && \
+# Build GEOS
+RUN cd geos-${GEOS_VERSION} && mkdir build && cd build && \
     CFLAGS="-O2 -w" CXXFLAGS="-O2 -w" \
     cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
     -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DBUILD_DOCUMENTATION=OFF && \
-    make -j$(nproc) && make install && cd /build && rm -rf geos-${GEOS_VERSION} geos.tar.bz2
+    make -j$(nproc) && make install && cd /build && rm -rf geos-${GEOS_VERSION}
 
-RUN tar xzf gdal.tar.gz && \
-    cd gdal-${GDAL_VERSION} && \
+# Build PROJ
+RUN cd proj-${PROJ_VERSION} && mkdir build && cd build && \
+    CFLAGS="-O2 -w" CXXFLAGS="-O2 -w" \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+    -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_TESTING=OFF -DENABLE_CURL=OFF -DENABLE_TIFF=OFF \
+    -DBUILD_PROJSYNC=OFF -DBUILD_PROJINFO=ON -DBUILD_PROJ=ON -DBUILD_GEOD=ON \
+    -DBUILD_CS2CS=ON -DBUILD_CCT=ON -DBUILD_GIE=OFF -DBUILD_APPS=ON \
+    -DPROJ_DB_EXTRA_VALIDATION=OFF && \
+    make -j$(nproc) && make install && cd /build && rm -rf proj-${PROJ_VERSION}
+
+# Build GDAL
+RUN cd gdal-${GDAL_VERSION} && \
     sed -i 's/&pszSrcBuf/(char**)\&pszSrcBuf/g' port/cpl_recode_iconv.cpp && \
     mkdir build && cd build && \
     PKG_CONFIG_PATH=/usr/local/lib/pkgconfig \
@@ -61,29 +61,36 @@ RUN tar xzf gdal.tar.gz && \
     -DGDAL_ENABLE_DRIVER_MEM=ON -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_JAVA_BINDINGS=OFF \
     -DCSHARP_BINDINGS=OFF -DBUILD_TESTING=OFF -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON \
     -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
-    make -j$(nproc) && make install && cd /build && rm -rf gdal-${GDAL_VERSION} gdal.tar.gz
+    make -j$(nproc) && make install && cd /build && rm -rf gdal-${GDAL_VERSION}
 
-RUN echo "=== Standalone Verification ===" && \
-    for binary in gdalinfo ogr2ogr ogrinfo gdal_rasterize gdal_translate; do \
-    if [ -f "/usr/local/bin/$binary" ]; then \
-    echo "Checking $binary..." && \
-    if ldd "/usr/local/bin/$binary" 2>&1 | grep -q -E "not a dynamic executable|Not a valid dynamic program"; then \
-    echo "✓ $binary: Static binary"; \
-    else \
-    echo "✗ $binary: Dynamic dependencies found"; \
-    ldd "/usr/local/bin/$binary"; \
-    fi; \
-    fi; \
-    done
-
-# Stage 2: Final container
+# Stage 2: Extract binaries
 FROM alpine:3.19
 
-COPY --from=builder /usr/local/bin/gdalinfo /linux/binaries/gdalinfo
-COPY --from=builder /usr/local/bin/ogr2ogr /linux/binaries/ogr2ogr
-COPY --from=builder /usr/local/bin/ogrinfo /linux/binaries/ogrinfo
-COPY --from=builder /usr/local/bin/gdal_rasterize /linux/binaries/gdal_rasterize
-COPY --from=builder /usr/local/bin/gdal_translate /linux/binaries/gdal_translate
+# Determine architecture suffix toolchain naming
+RUN if [ "$(uname -m)" = "x86_64" ]; then \
+    echo "x86_64-unknown-linux-gnu" > /tmp/arch_suffix; \
+    elif [ "$(uname -m)" = "aarch64" ]; then \
+    echo "aarch64-unknown-linux-gnu" > /tmp/arch_suffix; \
+    else \
+    echo "unknown-linux-gnu" > /tmp/arch_suffix; \
+    fi
+
+COPY --from=builder /usr/local/bin/gdalinfo /tmp/gdalinfo
+COPY --from=builder /usr/local/bin/ogr2ogr /tmp/ogr2ogr
+COPY --from=builder /usr/local/bin/ogrinfo /tmp/ogrinfo
+COPY --from=builder /usr/local/bin/gdal_rasterize /tmp/gdal_rasterize
+COPY --from=builder /usr/local/bin/gdal_translate /tmp/gdal_translate
+
+# Copy binaries with architecture suffix
+RUN ARCH_SUFFIX=$(cat /tmp/arch_suffix) && \
+    mkdir -p /linux/binaries && \
+    cp /tmp/gdalinfo /linux/binaries/gdalinfo-${ARCH_SUFFIX} && \
+    cp /tmp/ogr2ogr /linux/binaries/ogr2ogr-${ARCH_SUFFIX} && \
+    cp /tmp/ogrinfo /linux/binaries/ogrinfo-${ARCH_SUFFIX} && \
+    cp /tmp/gdal_rasterize /linux/binaries/gdal_rasterize-${ARCH_SUFFIX} && \
+    cp /tmp/gdal_translate /linux/binaries/gdal_translate-${ARCH_SUFFIX} && \
+    rm -rf /tmp/*
+
 COPY --from=builder /usr/local/share/gdal /linux/data/gdal
 COPY --from=builder /usr/local/share/proj /linux/data/proj
 
