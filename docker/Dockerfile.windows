@@ -71,9 +71,9 @@ RUN cd gdal-${GDAL_VERSION} && \
     -DGDAL_USE_ZLIB_INTERNAL=ON -DGDAL_USE_LIBPNG_INTERNAL=ON -DGDAL_USE_JPEG_INTERNAL=ON \
     -DGDAL_USE_GEOTIFF_INTERNAL=ON -DGDAL_USE_TIFF_INTERNAL=ON -DGDAL_USE_ZSTD=OFF \
     -DGDAL_USE_ZSTD_INTERNAL=ON -DGDAL_USE_WEBP=OFF -DBUILD_APPS=ON \
-    -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF -DGDAL_ENABLE_DRIVER_GTIFF=ON -DGDAL_ENABLE_DRIVER_VRT=ON \
+    -DGDAL_BUILD_OPTIONAL_DRIVERS=ON -DGDAL_ENABLE_DRIVER_GTIFF=ON -DGDAL_ENABLE_DRIVER_VRT=ON \
     -DGDAL_ENABLE_DRIVER_GPKG=ON -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON -DGDAL_ENABLE_DRIVER_GEOJSON=ON \
-    -DGDAL_ENABLE_DRIVER_MEM=ON -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_JAVA_BINDINGS=OFF \
+    -DGDAL_ENABLE_DRIVER_MEM=ON -DGDAL_ENABLE_DRIVER_EHDR=ON -DGDAL_ENABLE_DRIVER_ENVI=ON -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_JAVA_BINDINGS=OFF \
     -DBUILD_CSHARP_BINDINGS=OFF -DBUILD_TESTING=OFF -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON \
     -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
     make -j$(nproc) && make install && cd /build && rm -rf gdal-${GDAL_VERSION}
@@ -88,6 +88,8 @@ COPY --from=builder /usr/x86_64-w64-mingw32/bin/ogr2ogr.exe /binaries/ogr2ogr-x8
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/ogrinfo.exe /binaries/ogrinfo-x86_64-pc-msvc.exe
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdal_rasterize.exe /binaries/gdal_rasterize-x86_64-pc-msvc.exe
 COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdal_translate.exe /binaries/gdal_translate-x86_64-pc-msvc.exe
+COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdalwarp.exe /binaries/gdalwarp-x86_64-pc-msvc.exe
+COPY --from=builder /usr/x86_64-w64-mingw32/bin/gdal_create.exe /binaries/gdal_create-x86_64-pc-msvc.exe
 COPY --from=builder /usr/x86_64-w64-mingw32/share/gdal/ /gdal-data/
 COPY --from=builder /usr/x86_64-w64-mingw32/share/proj/ /proj-data/
 

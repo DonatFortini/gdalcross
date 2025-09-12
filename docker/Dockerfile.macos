@@ -108,9 +108,9 @@ RUN cd gdal-${GDAL_VERSION} && mkdir build && cd build && \
     -DGDAL_USE_LIBPNG_INTERNAL=ON -DGDAL_USE_JPEG_INTERNAL=ON -DGDAL_USE_GEOTIFF_INTERNAL=ON \
     -DGDAL_USE_TIFF_INTERNAL=ON -DGDAL_USE_ZSTD_INTERNAL=ON -DGDAL_USE_WEBP=OFF \
     -DGDAL_USE_ICONV=OFF -DGDAL_USE_CURL=OFF -DGDAL_USE_LIBXML2=OFF -DGDAL_USE_EXPAT=OFF \
-    -DGDAL_USE_OPENSSL=OFF -DGDAL_USE_CRYPTO=OFF -DBUILD_APPS=ON -DGDAL_BUILD_OPTIONAL_DRIVERS=OFF \
+    -DGDAL_USE_OPENSSL=OFF -DGDAL_USE_CRYPTO=OFF -DBUILD_APPS=ON -DGDAL_BUILD_OPTIONAL_DRIVERS=ON \
     -DGDAL_ENABLE_DRIVER_GTIFF=ON -DGDAL_ENABLE_DRIVER_VRT=ON -DGDAL_ENABLE_DRIVER_GPKG=ON \
-    -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON -DGDAL_ENABLE_DRIVER_GEOJSON=ON -DGDAL_ENABLE_DRIVER_MEM=ON \
+    -DGDAL_ENABLE_DRIVER_SHAPEFILE=ON -DGDAL_ENABLE_DRIVER_GEOJSON=ON -DGDAL_ENABLE_DRIVER_MEM=ON -DGDAL_ENABLE_DRIVER_EHDR=ON -DGDAL_ENABLE_DRIVER_ENVI=ON \
     -DBUILD_PYTHON_BINDINGS=OFF -DBUILD_JAVA_BINDINGS=OFF -DBUILD_CSHARP_BINDINGS=OFF \
     -DBUILD_TESTING=OFF -DACCEPT_MISSING_SQLITE3_MUTEX_ALLOC=ON -DACCEPT_MISSING_SQLITE3_RTREE=ON && \
     make -j$(nproc) && make install && cd ../.. && rm -rf gdal-${GDAL_VERSION}
@@ -125,6 +125,8 @@ COPY --from=builder /opt/macos-build/bin/ogr2ogr /binaries/ogr2ogr-aarch64-apple
 COPY --from=builder /opt/macos-build/bin/ogrinfo /binaries/ogrinfo-aarch64-apple-darwin
 COPY --from=builder /opt/macos-build/bin/gdal_rasterize /binaries/gdal_rasterize-aarch64-apple-darwin
 COPY --from=builder /opt/macos-build/bin/gdal_translate /binaries/gdal_translate-aarch64-apple-darwin
+COPY --from=builder /opt/macos-build/bin/gdal_create /binaries/gdal_create-aarch64-apple-darwin
+COPY --from=builder /opt/macos-build/bin/gdalwarp /binaries/gdalwarp-aarch64-apple-darwin
 COPY --from=builder /opt/macos-build/share/gdal/ /gdal-data/
 COPY --from=builder /opt/macos-build/share/proj/ /proj-data/
 
