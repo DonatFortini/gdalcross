@@ -54,7 +54,6 @@ USAGE:
 OPTIONS:
 	-h, --help          Show this help message
 	-c, --clean         Clean dist directory before building
-	-v, --verbose       Enable verbose output with organized sections
 
 PLATFORMS:
 	linux/amd64        Linux x86_64 (Intel/AMD 64-bit)
@@ -201,10 +200,6 @@ build_platform() {
 				fi
 			done
 		done
-
-		if [ "$VERBOSE" = "true" ]; then
-			echo "📊 $platform: Kept $kept_count/${#WANTED_EXECUTABLES[@]} executables"
-		fi
 	fi
 
 	rm -rf "$temp_bin_dir"
@@ -311,7 +306,6 @@ docker_full_clean() {
 main() {
 	local platforms_to_build=()
 	local clean_first=false
-	VERBOSE=false
 
 	while [[ $# -gt 0 ]]; do
 		case $1 in
@@ -345,10 +339,6 @@ main() {
 			;;
 		-c | --clean)
 			clean_first=true
-			shift
-			;;
-		-v | --verbose)
-			VERBOSE=true
 			shift
 			;;
 		-*)
