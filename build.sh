@@ -14,6 +14,7 @@ WANTED_EXECUTABLES=(
 	"gdalwarp"
 	"ogr2ogr"
 	"ogrinfo"
+	"gdalbuildvrt"
 )
 
 get_rust_toolchain() {

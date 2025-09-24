@@ -259,15 +259,11 @@ FROM ubuntu:22.04 AS extractor
 ARG TARGETOS
 ARG TARGETARCH
 
-# Create output directories
 RUN mkdir -p /output/binaries /output/data-gdal /output/data-proj
 
-# Copy all built artifacts
 COPY --from=builder / /tmp/build/
 
-# Extract GDAL/OGR binaries and shared data only
 RUN set -e && \
-    # Determine source prefix based on target OS
     case "$TARGETOS" in \
     "linux")   SRC="/tmp/build/usr/local" ;; \
     "darwin")  SRC="/tmp/build/opt/macos-build" ;; \
@@ -295,38 +291,21 @@ RUN set -e && \
     if [ -d "$SRC/bin" ] && [ "$(ls -A "$SRC/bin" 2>/dev/null)" ]; then \
     echo "📦 Extracting GDAL/OGR binaries for $TARGETOS..." && \
     if [ "$TARGETOS" = "windows" ]; then \
-    # Windows: copy gdal*.exe and ogr*.exe files only
     find "$SRC/bin" -name "gdal*.exe" -type f -exec cp {} /output/binaries/ \; 2>/dev/null || true && \
     find "$SRC/bin" -name "ogr*.exe" -type f -exec cp {} /output/binaries/ \; 2>/dev/null || true && \
     BIN_COUNT=$(find /output/binaries -name "*.exe" | wc -l) && \
     echo "✓ Windows GDAL/OGR executables: $BIN_COUNT"; \
     else \
-    # Unix: copy gdal* and ogr* tools only (exclude .exe files)
     find "$SRC/bin" -name "gdal*" -type f ! -name "*.exe" -exec cp {} /output/binaries/ \; 2>/dev/null || true && \
     find "$SRC/bin" -name "ogr*" -type f ! -name "*.exe" -exec cp {} /output/binaries/ \; 2>/dev/null || true && \
     BIN_COUNT=$(find /output/binaries -type f | wc -l) && \
     echo "✓ Unix GDAL/OGR binaries: $BIN_COUNT"; \
     fi && \
-    # Set executable permissions
     chmod +x /output/binaries/* 2>/dev/null || true; \
     else \
     echo "❌ No binaries found at $SRC/bin"; \
     fi && \
     \
-    # Summary
-    echo "=== EXTRACTION COMPLETE ===" && \
-    echo "Platform: $TARGETOS-$TARGETARCH" && \
-    echo "GDAL/OGR binaries: $(ls /output/binaries 2>/dev/null | wc -l)" && \
-    echo "GDAL data: $(find /output/data-gdal -type f 2>/dev/null | wc -l)" && \
-    echo "PROJ data: $(find /output/data-proj -type f 2>/dev/null | wc -l)" && \
-    \
-    # List binaries for verification
-    if [ "$(ls /output/binaries 2>/dev/null | wc -l)" -gt 0 ]; then \
-    echo "Binary list:" && \
-    ls -la /output/binaries/ | tail -n +2 | awk '{print "  " $9 " (" $5 " bytes)"}'; \
-    fi && \
-    \
-    # Cleanup
     rm -rf /tmp/build
 
 CMD ["echo", "Extraction completed"]
