@@ -53,7 +53,7 @@ USAGE:
 
 OPTIONS:
 	-h, --help          Show this help message
-	-c, --clean         Clean dist directory before building
+	-c, --clean         Clean dist directory and docker before building
 
 PLATFORMS:
 	linux/amd64        Linux x86_64 (Intel/AMD 64-bit)
@@ -374,6 +374,8 @@ main() {
 
 	if [ "$clean_first" = true ]; then
 		clean_dist
+		docker_full_clean
+		success "Cleaned dist directory and Docker"
 	else
 		mkdir -p dist/data/{gdal,proj}
 	fi
