@@ -12,6 +12,8 @@ WANTED_EXECUTABLES=(
 	"gdalinfo"
 	"gdal_translate"
 	"gdalwarp"
+	"gdal_create"
+	"gdal_rasterize"
 	"ogr2ogr"
 	"ogrinfo"
 	"gdalbuildvrt"
@@ -23,7 +25,7 @@ get_rust_toolchain() {
 	"linux/amd64") echo "x86_64-unknown-linux-gnu" ;;
 	"linux/arm64") echo "aarch64-unknown-linux-gnu" ;;
 	"darwin/arm64") echo "aarch64-apple-darwin" ;;
-	"windows/amd64") echo "x86_64-pc-windows-gnu" ;;
+	"windows/amd64") echo "x86_64-pc-msvc" ;;
 	*) echo "unknown" ;;
 	esac
 }
