@@ -15,7 +15,7 @@ WANTED_EXECUTABLES=(
 	"gdal_rasterize"
 	"ogr2ogr"
 	"ogrinfo"
-	"gdalbuildvrt",
+	"gdalbuildvrt"
 	"gdaldem"
 )
 
